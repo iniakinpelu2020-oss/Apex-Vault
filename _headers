@@ -1,7 +1,5 @@
-/*
-  Cloudflare Pages headers for Apex Vault.
-  connect-src is limited to Firebase Auth, Firestore and the Automation Worker.
-*/
+# Apex Vault - Cloudflare Pages headers
+# connect-src is limited to Firebase Auth, Firestore and the Automation Worker.
 /*
   Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; manifest-src 'self'; worker-src 'self'; connect-src 'self' https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://automation.iniakinpelu2020.workers.dev; base-uri 'none'; form-action 'self'; frame-ancestors 'self'
   X-Content-Type-Options: nosniff
