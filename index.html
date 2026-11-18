@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0b0f14" />
+<meta name="color-scheme" content="dark" />
+<title>Apex Vault</title>
+<meta name="description" content="Encrypted passwords and secrets, sealed in your browser with a master password." />
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="icon" href="icons/icon-192.png" sizes="192x192" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand"><span class="mark" aria-hidden="true">◈</span> <span>APEX<span class="dim">VAULT</span></span></div>
+  <div class="topbar-actions">
+    <button id="btn-settings" class="ghost" type="button" title="Settings">⚙</button>
+    <button id="btn-lock" class="ghost" type="button" title="Lock vault" hidden>Lock</button>
+  </div>
+</header>
+
+<!-- 1. Sign in -->
+<main id="view-auth" class="view">
+  <section class="card auth-card">
+    <h1>Sign in</h1>
+    <p class="muted">Your account only decides <em>where</em> the encrypted blobs live. It never sees your master password.</p>
+    <form id="form-auth" autocomplete="on">
+      <label>Email
+        <input id="auth-email" type="email" autocomplete="username" required placeholder="you@example.com" />
+      </label>
+      <label>Password
+        <input id="auth-pass" type="password" autocomplete="current-password" required placeholder="account password" />
+      </label>
+      <p id="auth-error" class="error" role="alert" hidden></p>
+      <button id="auth-submit" class="primary" type="submit">Continue</button>
+    </form>
+    <button id="btn-config" class="link" type="button">Project settings</button>
+  </section>
+</main>
+
+<!-- 2. Master password -->
+<main id="view-lock" class="view" hidden>
+  <section class="card auth-card">
+    <h1 id="lock-title">Unlock</h1>
+    <p id="lock-hint" class="muted">Enter your master password. It is never sent anywhere.</p>
+    <form id="form-unlock">
+      <label>Master password
+        <input id="unlock-pass" type="password" autocomplete="current-password" required minlength="8" />
+      </label>
+      <label id="confirm-wrap" hidden>Confirm
+        <input id="unlock-confirm" type="password" autocomplete="new-password" />
+      </label>
+      <p id="unlock-error" class="error" role="alert" hidden></p>
+      <button id="unlock-submit" class="primary" type="submit">Unlock</button>
+    </form>
+    <button id="btn-signout" class="link" type="button">Sign out</button>
+  </section>
+</main>
+
+<!-- 3. Vault -->
+<main id="view-vault" class="view" hidden>
+  <div class="toolbar">
+    <input id="search" type="search" placeholder="Search entries" aria-label="Search entries" />
+    <button id="btn-add" class="primary compact" type="button">+ Add</button>
+  </div>
+  <div class="toolbar secondary">
+    <button id="btn-import" class="ghost" type="button">Import CSV</button>
+    <button id="btn-generate" class="ghost" type="button">Generator</button>
+    <button id="btn-refresh" class="ghost" type="button">Sync</button>
+  </div>
+
+  <p id="vault-status" class="status" aria-live="polite"></p>
+  <ul id="entry-list" class="entries"></ul>
+  <p id="empty" class="empty" hidden>No entries yet. Add one, or import a CSV export.</p>
+</main>
+
+<!-- Entry editor -->
+<dialog id="dlg-entry" class="sheet">
+  <form id="form-entry" method="dialog">
+    <h2 id="entry-title">New entry</h2>
+    <label>Label <input id="f-label" required placeholder="GitHub" /></label>
+    <label>Service id <input id="f-serviceid" required pattern="[a-z0-9][a-z0-9_-]*" placeholder="github" /></label>
+    <label>Username / email <input id="f-username" autocomplete="off" placeholder="you@example.com" /></label>
+    <label>Password
+      <span class="row">
+        <input id="f-password" type="password" autocomplete="off" />
+        <button id="f-reveal" class="ghost icon" type="button" title="Show">👁</button>
+        <button id="f-dice" class="ghost icon" type="button" title="Generate">⟳</button>
+      </span>
+    </label>
+    <label>URL <input id="f-url" type="url" placeholder="https://github.com" /></label>
+    <label>Notes <textarea id="f-notes" rows="3" placeholder="Recovery codes, security answers…"></textarea></label>
+    <p id="entry-warn" class="warn" hidden></p>
+    <p id="entry-error" class="error" role="alert" hidden></p>
+    <menu>
+      <button id="entry-cancel" class="ghost" type="button">Cancel</button>
+      <button id="entry-save" class="primary" type="submit">Save</button>
+    </menu>
+  </form>
+</dialog>
+
+<!-- CSV importer -->
+<dialog id="dlg-import" class="sheet wide">
+  <div>
+    <h2>Import CSV</h2>
+    <p class="muted">Chrome, Bitwarden, LastPass and 1Password exports all work. Encrypted in this browser before anything is uploaded.</p>
+    <label>CSV file <input id="csv-file" type="file" accept=".csv,text/csv" /></label>
+    <fieldset class="mapping">
+      <legend>Columns</legend>
+      <label>Label <select id="map-label"></select></label>
+      <label>Username <select id="map-username"></select></label>
+      <label>Password <select id="map-password"></select></label>
+      <label>URL <select id="map-url"></select></label>
+      <label>Notes <select id="map-notes"></select></label>
+    </fieldset>
+    <p id="csv-summary" class="status" aria-live="polite"></p>
+    <progress id="csv-progress" max="100" value="0" hidden></progress>
+    <p id="csv-error" class="error" role="alert" hidden></p>
+    <menu>
+      <button id="import-cancel" class="ghost" type="button">Close</button>
+      <button id="import-run" class="primary" type="button" disabled>Import</button>
+    </menu>
+  </div>
+</dialog>
+
+<!-- Generator -->
+<dialog id="dlg-gen" class="sheet">
+  <div>
+    <h2>Generator</h2>
+    <output id="gen-out" class="gen-out" aria-live="polite"></output>
+    <label>Length <input id="gen-length" type="range" min="12" max="64" value="20" /> <span id="gen-len-val">20</span></label>
+    <div class="toggles">
+      <label><input id="gen-upper" type="checkbox" checked /> A–Z</label>
+      <label><input id="gen-lower" type="checkbox" checked /> a–z</label>
+      <label><input id="gen-digits" type="checkbox" checked /> 0–9</label>
+      <label><input id="gen-symbols" type="checkbox" checked /> !@#$</label>
+    </div>
+    <p id="gen-strength" class="status"></p>
+    <menu>
+      <button id="gen-close" class="ghost" type="button">Close</button>
+      <button id="gen-refresh" class="ghost" type="button">Regenerate</button>
+      <button id="gen-copy" class="primary" type="button">Copy</button>
+    </menu>
+  </div>
+</dialog>
+
+<!-- Settings -->
+<dialog id="dlg-settings" class="sheet">
+  <div>
+    <h2>Project settings</h2>
+    <p class="muted">These must match the Firebase project the Automation backend uses (<code>apexaiautomation</code>). Stored in this browser only.</p>
+    <label>Firebase API key <input id="s-apikey" autocomplete="off" /></label>
+    <label>Project id <input id="s-project" autocomplete="off" /></label>
+    <label>Backend base URL <input id="s-backend" placeholder="https://automation.iniakinpelu2020.workers.dev" /></label>
+    <p id="settings-error" class="error" role="alert" hidden></p>
+    <menu>
+      <button id="settings-cancel" class="ghost" type="button">Cancel</button>
+      <button id="settings-save" class="primary" type="button">Save</button>
+    </menu>
+  </div>
+</dialog>
+
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
