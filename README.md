@@ -1,41 +1,79 @@
 # Apex Vault
 
-Encrypted passwords and 2FA codes, stored under your own account.
+The screen the vault never had. Static files, no build step, no dependencies.
+Everything you save is encrypted in the browser with your master password
+before it leaves the tab.
 
-**Status: the crypto and storage half exists inside `Automation`. There is no interface.**
+**Status:** UI, unlock, entries, CSV import and generator all implemented.
+It talks to the same Firestore documents as `Automation/src/vault/`.
 
-## What already exists
+## How it connects to the existing backend
 
-`Automation/src/vault/` contains:
+| Piece | Where it comes from |
+| --- | --- |
+| Sign-in | Firebase Auth REST (`identitytoolkit`), same project as the backend |
+| Storage | Firestore REST, `users/{uid}/vault/{serviceId}` |
+| Field names | `serviceId, label, ciphertext, iv, salt, updatedAt` - identical to `firestore.ts` |
+| Crypto | PBKDF2-SHA256, 100 000 iterations to AES-GCM 256, 16-byte salt, 12-byte IV, base64 - the same format as `crypto.ts` |
 
-- `crypto.ts` — AES-GCM encryption with a key derived (PBKDF2) from your master password.
-- `firestore.ts` — per-user storage, so one account cannot read another's records.
-- `offline.ts` — encrypted copies of your keys, so a scheduled run that loses its token
-  still works.
-- `oauth.ts` — the Google popup flow.
-- `index.ts` — the routes that tie them together.
+The salt is generated once per vault and kept in `users/{uid}/vaultmeta/main`
+so any browser can unlock the same entries. Each entry stores that salt in its
+own `salt` field, which is why the documents still look exactly like the ones
+`firestore.ts` writes.
 
-## What is missing
+## The one real difference from the backend
 
-- A screen. Right now the vault is an API and nothing else.
-- Import from Chrome, Bitwarden or a CSV, or you will not switch.
-- A recovery phrase. If you forget the master password, the data is gone — by design, and
-  with no exceptions.
-- 2FA code generation (TOTP), which is a small, well-specified algorithm.
+`Automation` encrypts with `env.ENCRYPTION_SECRET` - the server holds the key.
+This screen encrypts with your master password instead, so the server (and
+anyone who reads the database) cannot decrypt anything. That is the point of a
+master password, but it has a consequence:
 
-## The constraint that shapes it
+> Entry ids the scheduled runs read (`gemini`, `google_ai`, `groq`,
+> `openrouter`, `ai_settings`, anything starting with `google_`) are decrypted
+> by `getVaultCredential()` using `ENCRYPTION_SECRET`. Entries saved here for
+> those ids are sealed with your master password, so a cron run will fail to
+> read them. The screen warns and asks for confirmation before you save one.
 
-Firestore's free 1 GiB is enormously more than a password vault needs. The real risk is
-not storage. It is losing the key, so a recovery path matters more than any feature.
+Keeping both consumers happy needs a second envelope in the document, written
+through `POST /api/vault`. That is a backend change and is not made here.
 
-## What you need to do
+## Firebase setup
 
-1. Nothing new. This uses the same Firebase project as `Apex-Auth`.
-2. Decide the master-password policy now, because changing it later means re-encrypting
-   every record.
+1. **Sign-in provider:** Firebase console, Authentication, enable Email/Password.
+2. **Rules** - merge into your existing rules:
 
-## First three steps
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid}/vault/{docId} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+    match /users/{uid}/vaultmeta/{docId} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}
+```
 
-1. A list-and-copy screen over the existing routes.
-2. CSV import, with a dry-run preview.
-3. A printed recovery phrase, generated at setup and shown exactly once.
+3. **Authorised domains** - add the Pages domain under Authentication, Settings.
+4. **Project settings** - the gear in the app. Defaults are `apexaiautomation`
+   and the public web API key. If sign-in says *API key not valid*, the key
+   belongs to another project; copy the right one from Project settings.
+
+## Features
+
+- Unlock with a master password; the key lives in memory only and is dropped
+  after 5 minutes idle, on Lock, and on tab close.
+- Add, edit and delete entries with username, password, URL and notes.
+- Copy username or password; the clipboard is wiped 30 seconds later.
+- Password generator, 12-64 characters, all four character sets, rejection
+  sampled, with a strength readout.
+- CSV import for Chrome, Bitwarden, LastPass and 1Password exports, with column
+  mapping, collision-safe ids and per-row progress. Encrypted before writing.
+- Search across labels, ids, usernames and URLs.
+- Installs as a PWA; the service worker caches the shell and never the data.
+
+## Deploying to Cloudflare Pages
+
+Upload the folder as-is - no build command, no output directory.
