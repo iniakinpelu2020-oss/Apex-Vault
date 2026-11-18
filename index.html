@@ -37,6 +37,8 @@
       <p id="auth-error" class="error" role="alert" hidden></p>
       <button id="auth-submit" class="primary" type="submit">Continue</button>
     </form>
+    <button id="btn-device" class="ghost" type="button">Use on this device — no account</button>
+    <p id="device-note" class="muted" hidden></p>
     <button id="btn-config" class="link" type="button">Project settings</button>
   </section>
 </main>
@@ -82,7 +84,7 @@
   <form id="form-entry" method="dialog">
     <h2 id="entry-title">New entry</h2>
     <label>Label <input id="f-label" required placeholder="GitHub" /></label>
-    <label>Service id <input id="f-serviceid" required pattern="[a-z0-9][a-z0-9_-]*" placeholder="github" /></label>
+    <label>Service id <input id="f-serviceid" required pattern="[a-z0-9][a-z0-9_\-]*" placeholder="github" /></label>
     <label>Username / email <input id="f-username" autocomplete="off" placeholder="you@example.com" /></label>
     <label>Password
       <span class="row">

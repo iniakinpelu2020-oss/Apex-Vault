@@ -1,13 +1,16 @@
 import { getConfig, setConfig, isCronReadable } from "./config.js";
 import { currentSession, signIn, signOut, idToken } from "./auth.js";
 import { deriveKey, encryptWith, decryptWith, randomB64 } from "./crypto.js";
-import { listItems, saveItem, deleteItem, getMeta, saveMeta } from "./firestore.js";
+import * as account from "./firestore.js";
+import * as device from "./local.js";
 import { detectDelimiter, parseCsv, guessMapping, rowsToRecords } from "./csv.js";
 import { generate, strength, slug } from "./gen.js";
 import { $, el, setView, toast, showError, fmtDate, setStatus, renderEntries } from "./ui.js";
 
 const state = {
   session: null,
+  local: false,
+  uid: "",
   key: null,
   saltB64: "",
   items: [],
@@ -18,6 +21,12 @@ const state = {
 };
 
 /* ---------- helpers ---------- */
+
+/* Two backends, one shape: `device` keeps entries in IndexedDB, `account` in
+   Firestore. Everything below calls through api() so neither path is special. */
+function api() {
+  return state.local ? device : account;
+}
 
 function clearKey() {
   state.key = null;
@@ -93,7 +102,8 @@ function paint() {
   const locked = state.items.filter((i) => i.error).length;
   setStatus(
     `${state.items.length} entr${state.items.length === 1 ? "y" : "ies"} sealed with your master password` +
-      (locked ? ` · ${locked} unreadable` : ""),
+      (locked ? ` · ${locked} unreadable` : "") +
+      (state.local ? " · on this device" : " · synced to your account"),
   );
 }
 
@@ -107,7 +117,7 @@ function goAuth() {
 async function goLock() {
   setView("lock");
   showError("unlock-error", "");
-  const meta = await getMeta(state.session.uid).catch(() => null);
+  const meta = await api().getMeta(state.uid).catch(() => null);
   const fromItems = state.items.find((i) => i.salt);
   state.saltB64 = (meta && meta.kdfSalt) || (fromItems ? fromItems.salt : "");
   state.newVault = !state.saltB64;
@@ -125,7 +135,7 @@ async function goLock() {
 async function loadVault() {
   setStatus("Loading…");
   try {
-    state.items = await listItems(state.session.uid);
+    state.items = await api().listItems(state.uid);
   } catch (err) {
     state.items = [];
     setStatus("");
@@ -164,7 +174,7 @@ $("form-unlock").addEventListener("submit", async (event) => {
     state.saltB64 = salt;
 
     if (state.newVault) {
-      await saveMeta(state.session.uid, salt);
+      await api().saveMeta(state.uid, salt);
       state.newVault = false;
       toast("Vault created — keep that password safe", 3200);
     }
@@ -181,7 +191,11 @@ $("form-unlock").addEventListener("submit", async (event) => {
 });
 
 $("btn-signout").addEventListener("click", () => {
-  signOut();
+  /* Device mode has no account to leave: the entries stay here, sealed, and
+     going back to the sign-in screen is the whole of "sign out". */
+  if (!state.local) signOut();
+  state.local = false;
+  state.uid = "";
   clearKey();
   state.items = [];
   state.saltB64 = "";
@@ -198,6 +212,8 @@ $("form-auth").addEventListener("submit", async (event) => {
   try {
     state.session = await signIn($("auth-email").value.trim(), $("auth-pass").value);
     $("auth-pass").value = "";
+    state.local = false;
+    state.uid = state.session.uid;
     await loadVault();
     await goLock();
   } catch (err) {
@@ -313,7 +329,7 @@ $("form-entry").addEventListener("submit", async (event) => {
       updatedAt: new Date().toISOString(),
       envelope: "master",
     };
-    await saveItem(state.session.uid, item);
+    await api().saveItem(state.uid, item);
     if (editing) Object.assign(editing, item, { data: secretData, error: "" });
     else state.items.push({ ...item, data: secretData, error: "" });
     $("dlg-entry").close();
@@ -329,7 +345,7 @@ $("form-entry").addEventListener("submit", async (event) => {
 async function removeEntry(item) {
   if (!confirm(`Delete "${item.label || item.serviceId}"? This cannot be undone.`)) return;
   try {
-    await deleteItem(state.session.uid, item.serviceId);
+    await api().deleteItem(state.uid, item.serviceId);
     state.items = state.items.filter((i) => i !== item);
     paint();
     toast("Deleted");
@@ -473,7 +489,7 @@ $("import-run").addEventListener("click", async () => {
         updatedAt: new Date().toISOString(),
         envelope: "master",
       };
-      await saveItem(state.session.uid, item);
+      await api().saveItem(state.uid, item);
       state.items.push({
         ...item,
         data: { username: record.username, password: record.password, url: record.url, notes: record.notes },
@@ -519,15 +535,56 @@ $("settings-save").addEventListener("click", () => {
 
 /* ---------- boot ---------- */
 
+/* Device mode: no sign-in, no network, entries in this browser only. */
+async function startDeviceVault() {
+  showError("auth-error", "");
+  state.local = true;
+  state.session = null;
+  state.uid = "local";
+  $("btn-signout").textContent = "Back to sign in";
+  await loadVault();
+  await goLock();
+}
+
+async function noteDeviceEntries() {
+  const node = $("device-note");
+  if (!node) return;
+  const count = await device.countItems();
+  node.textContent = count
+    ? `${count} entr${count === 1 ? "y" : "ies"} already saved in this browser. ` +
+      `Open ${count === 1 ? "it" : "them"} with your master password.`
+    : "";
+  node.hidden = !count;
+}
+
+$("btn-device").addEventListener("click", startDeviceVault);
+
+/* The shell cache is what makes the app open with no signal. Relative path and
+   default scope, so it registers correctly under /apps/vault/ as well as at a
+   root deploy. */
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch(() => {
+      /* an unregistered worker only costs offline access, never the vault */
+    });
+  });
+}
+
 async function boot() {
   state.session = currentSession();
-  if (!state.session) return goAuth();
+  if (!state.session) {
+    await noteDeviceEntries();
+    return goAuth();
+  }
   try {
     await idToken();
   } catch {
+    await noteDeviceEntries();
     goAuth();
     return;
   }
+  state.local = false;
+  state.uid = state.session.uid;
   await loadVault();
   await goLock();
   $("auth-email").value = state.session.email || "";
