@@ -4,8 +4,26 @@ The screen the vault never had. Static files, no build step, no dependencies.
 Everything you save is encrypted in the browser with your master password
 before it leaves the tab.
 
-**Status:** UI, unlock, entries, CSV import and generator all implemented.
-It talks to the same Firestore documents as `Automation/src/vault/`.
+**Status:** unlock, entries, CSV import, generator, on-device storage and optional
+account sync all implemented. It can run with no account and no network, or talk to
+the same Firestore documents as `Automation/src/vault/`.
+
+## Two ways to run it
+
+| Mode | Where entries live | What it needs |
+| --- | --- | --- |
+| **On this device** (“Use on this device”) | IndexedDB in this browser, ciphertext only | Nothing. No account, no network, works offline |
+| **Account sync** (email + password) | Firestore `users/{uid}/vault/{serviceId}` | A Firebase account in the configured project |
+
+The on-device path is the default the store promises, and it needs no setup at all:
+open the page, press “Use on this device”, choose a master password and start. The
+same AES-GCM envelope is used in both modes, so an entry is ciphertext either way.
+`js/local.js` mirrors the five calls in `js/firestore.js` and `js/app.js` picks a
+backend at boot, which is why neither mode is a special case in the UI.
+
+Device mode keeps one vault per browser: uninstalling the app or clearing site data
+destroys it, and there is no recovery. Sync mode is for carrying entries between
+devices, and it is the only mode where the salt lives on a server.
 
 ## How it connects to the existing backend
 
@@ -72,6 +90,7 @@ service cloud.firestore {
 - CSV import for Chrome, Bitwarden, LastPass and 1Password exports, with column
   mapping, collision-safe ids and per-row progress. Encrypted before writing.
 - Search across labels, ids, usernames and URLs.
+- Works with no account and no network (device mode), or syncs to Firestore.
 - Installs as a PWA; the service worker caches the shell and never the data.
 
 ## Deploying to Cloudflare Pages

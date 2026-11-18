@@ -1,6 +1,7 @@
 /* Apex Vault service worker: caches the shell only.
-   Vault data is never cached — it lives in Firestore and is encrypted. */
-const CACHE = "apex-vault-v1";
+   Entries are never cached here — they are ciphertext in Firestore, or in
+   IndexedDB when the vault runs on this device alone. */
+const CACHE = "apex-vault-v4";
 const SHELL = [
   "./",
   "./index.html",
@@ -12,10 +13,12 @@ const SHELL = [
   "./js/crypto.js",
   "./js/auth.js",
   "./js/firestore.js",
+  "./js/local.js",
   "./js/csv.js",
   "./js/gen.js",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
+  "./icons/maskable-512.png",
 ];
 
 self.addEventListener("install", (event) => {
